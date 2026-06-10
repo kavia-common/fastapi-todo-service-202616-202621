@@ -30,6 +30,9 @@ else:
 conn = sqlite3.connect(DB_NAME)
 cursor = conn.cursor()
 
+# Enable foreign keys (no-op unless foreign keys are used)
+cursor.execute("PRAGMA foreign_keys = ON")
+
 # Create initial schema
 cursor.execute("""
     CREATE TABLE IF NOT EXISTS app_info (
@@ -50,6 +53,25 @@ cursor.execute("""
     )
 """)
 
+# Create todos table required by the FastAPI backend.
+# Note: this is intentionally idempotent and preserves any existing tables/data.
+# Schema requirements (backend): id, title, description (nullable), completed, created_at, updated_at.
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS todos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT,
+        completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+""")
+
+# Helpful indexes for common access patterns.
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_todos_completed ON todos(completed)")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_todos_created_at ON todos(created_at)")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_todos_updated_at ON todos(updated_at)")
+
 # Insert initial data
 cursor.execute("INSERT OR REPLACE INTO app_info (key, value) VALUES (?, ?)", 
                ("project_name", "database"))
@@ -68,6 +90,13 @@ table_count = cursor.fetchone()[0]
 
 cursor.execute("SELECT COUNT(*) FROM app_info")
 record_count = cursor.fetchone()[0]
+
+# If todos exists, show count to aid debugging.
+try:
+    cursor.execute("SELECT COUNT(*) FROM todos")
+    todos_count = cursor.fetchone()[0]
+except Exception:
+    todos_count = None
 
 conn.close()
 
@@ -116,6 +145,8 @@ print("")
 print("Database statistics:")
 print(f"  Tables: {table_count}")
 print(f"  App info records: {record_count}")
+if todos_count is not None:
+    print(f"  Todos records: {todos_count}")
 
 # If sqlite3 CLI is available, show how to use it
 try:
